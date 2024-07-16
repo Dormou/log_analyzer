@@ -9,7 +9,7 @@ from statistics import mean, median
 from string import Template
 from json import dumps
 import os
-import reThis
+import re
 import gzip
 import argparse
 import logging
@@ -81,7 +81,7 @@ def get_report_filename(report_dir: str, report_date: datetime) -> Optional[str]
         return absolute_report_path
     else:
         logger.info(f'The report file already exists (file: {filename})')
-        return None
+        return
 
 
 def parse_logfile(file_desc) -> Generator[Optional[dict], None, None]:
@@ -92,10 +92,14 @@ def parse_logfile(file_desc) -> Generator[Optional[dict], None, None]:
     :yield:
         dictionary with url and request time from log string (None if parsing has been failed)
     """
-    with open(file_desc.path, 'r', encoding='utf-8') if not file_desc.extension \
-            else gzip.open(file_desc.path, 'r', encoding='utf-8') as file:
-        for line in file:
-            yield parse_logfile_line(line)
+    opener = gzip.open if file_desc.extension == '.gz' else open
+    try:
+        with opener(file_desc.path, 'rt', encoding='utf-8') as file:
+            for line in file:
+                yield parse_logfile_line(line)
+    except OSError as ex:
+        logger.exception(f'Error while opening log file {file_desc.path}: {ex.strerror}')
+        return
 
 
 def parse_logfile_line(line: str) -> Optional[dict[datetime, Optional[str]]]:
@@ -156,13 +160,13 @@ def create_statistic_data(parsed_log_lines: Generator[Optional[dict], None, None
             parsing_error_counter += 1
 
     if total_lines_counter == 0:
-        logger.info('Blank log file. Cannot create statistical report.')
-        return None
+        logger.info('Log file was not read. Cannot create statistical report.')
+        return
 
     error_rate = parsing_error_counter / total_lines_counter
     if error_rate >= error_limit:
         logger.info(f'Parsing error limit has been exceeded (error percentage: {round(error_rate * 100, 2)})')
-        return None
+        return
 
     return [{'url': url,
              'count': len(time_list),
@@ -215,12 +219,12 @@ def update_config(old_config, new_config_path):
                 new_config = json.load(file)
             except ValueError:
                 logger.critical('Failed to parse config file')
-                return None
+                return
             old_config.update(new_config)
             return old_config
     else:
         logger.critical('Config file does not exist')
-        return None
+        return
 
 
 def main(config_info):
